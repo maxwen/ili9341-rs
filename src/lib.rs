@@ -25,12 +25,21 @@
 //! ```
 //!
 //! [display-interface-spi crate]: https://crates.io/crates/display-interface-spi
-use embedded_hal::delay::DelayUs;
+extern crate alloc;
+
+use alloc::vec::Vec;
+
+use embedded_hal::delay::DelayNs;
 use embedded_hal::digital::OutputPin;
 
 use core::iter::once;
-use display_interface::DataFormat::{U16BEIter, U8Iter};
+use display_interface::DataFormat::{U16BEIter, U8Iter, U16, U16BE};
 use display_interface::WriteOnlyDataCommand;
+use embedded_graphics_core::{
+    pixelcolor::{raw::RawU16, Rgb565},
+    prelude::*,
+    primitives::Rectangle,
+};
 
 #[cfg(feature = "graphics")]
 mod graphics_core;
@@ -133,9 +142,9 @@ pub struct Ili9341<IFACE, RESET> {
 }
 
 impl<IFACE, RESET> Ili9341<IFACE, RESET>
-where
-    IFACE: WriteOnlyDataCommand,
-    RESET: OutputPin,
+    where
+        IFACE: WriteOnlyDataCommand,
+        RESET: OutputPin,
 {
     pub fn new<DELAY, SIZE, MODE>(
         interface: IFACE,
@@ -144,10 +153,10 @@ where
         mode: MODE,
         _display_size: SIZE,
     ) -> Result<Self>
-    where
-        DELAY: DelayUs,
-        SIZE: DisplaySize,
-        MODE: Mode,
+        where
+            DELAY: DelayNs,
+            SIZE: DisplaySize,
+            MODE: Mode,
     {
         let mut ili9341 = Ili9341 {
             interface,
@@ -194,17 +203,27 @@ where
 }
 
 impl<IFACE, RESET> Ili9341<IFACE, RESET>
-where
-    IFACE: WriteOnlyDataCommand,
+    where
+        IFACE: WriteOnlyDataCommand,
 {
     fn command(&mut self, cmd: Command, args: &[u8]) -> Result {
         self.interface.send_commands(U8Iter(&mut once(cmd as u8)))?;
         self.interface.send_data(U8Iter(&mut args.iter().cloned()))
     }
 
-    fn write_iter<I: IntoIterator<Item = u16>>(&mut self, data: I) -> Result {
+    fn write_iter<I: IntoIterator<Item=u16>>(&mut self, data: I) -> Result {
         self.command(Command::MemoryWrite, &[])?;
         self.interface.send_data(U16BEIter(&mut data.into_iter()))
+    }
+
+    fn write_slice_ne(&mut self, data: &mut [u16]) -> Result {
+        self.command(Command::MemoryWrite, &[])?;
+        self.interface.send_data(U16(data))
+    }
+
+    fn write_slice_be(&mut self, data: &mut [u16]) -> Result {
+        self.command(Command::MemoryWrite, &[])?;
+        self.interface.send_data(U16BE(data))
     }
 
     fn set_window(&mut self, x0: u16, y0: u16, x1: u16, y1: u16) -> Result {
@@ -281,7 +300,7 @@ where
     ///
     /// The iterator is useful to avoid wasting memory by holding a buffer for
     /// the whole screen when it is not necessary.
-    pub fn draw_raw_iter<I: IntoIterator<Item = u16>>(
+    pub fn draw_raw_iter<I: IntoIterator<Item=u16>>(
         &mut self,
         x0: u16,
         y0: u16,
@@ -302,14 +321,20 @@ where
     /// video memory.
     ///
     /// The expected format is rgb565.
-    pub fn draw_raw_slice(&mut self, x0: u16, y0: u16, x1: u16, y1: u16, data: &[u16]) -> Result {
-        self.draw_raw_iter(x0, y0, x1, y1, data.iter().copied())
+    pub fn draw_raw_slice_ne(&mut self, x0: u16, y0: u16, x1: u16, y1: u16, data: &mut [u16]) -> Result {
+        self.set_window(x0, y0, x1, y1)?;
+        self.write_slice_ne(data)
+    }
+
+    pub fn draw_raw_slice_be(&mut self, x0: u16, y0: u16, x1: u16, y1: u16, data: &mut [u16]) -> Result {
+        self.set_window(x0, y0, x1, y1)?;
+        self.write_slice_be(data)
     }
 
     /// Change the orientation of the screen
     pub fn set_orientation<MODE>(&mut self, mode: MODE) -> Result
-    where
-        MODE: Mode,
+        where
+            MODE: Mode,
     {
         self.command(Command::MemoryAccessControl, &[mode.mode()])?;
 
@@ -321,9 +346,26 @@ where
     }
 
     /// Fill entire screen with specfied color u16 value
-    pub fn clear_screen(&mut self, color: u16) -> Result {
-        let color = core::iter::repeat(color).take(self.width * self.height);
-        self.draw_raw_iter(0, 0, self.width as u16, self.height as u16, color)
+    pub fn clear_screen(&mut self, color: Rgb565) -> Result {
+        let w = self.width;
+        let h = self.height;
+        const HLINES: usize = 8;
+        let mut line_buffer: Vec<u16> = Vec::with_capacity(w * HLINES);
+
+        let c = RawU16::from(color).into_inner();
+        for i in 0..w * HLINES {
+            line_buffer.push(c.to_be());
+        }
+
+        for y in (0..h).step_by(HLINES) {
+            // MUST not use raw_slice_be cause this will mutate line_buffer
+            // for the to_be conversion. We already did this once above
+            self.draw_raw_slice_ne(0, y as u16, w as u16, (y + HLINES) as u16, line_buffer.as_mut_slice());
+        }
+        Ok(())
+
+        // let color = core::iter::repeat(color).take(self.width * self.height);
+        // self.draw_raw_slice(0, 0, self.width as u16, self.height as u16, color)
     }
 
     /// Control the screen sleep mode:

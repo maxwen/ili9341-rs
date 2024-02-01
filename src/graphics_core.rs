@@ -1,3 +1,4 @@
+use alloc::vec::Vec;
 use crate::Ili9341;
 use embedded_graphics_core::{
     pixelcolor::{raw::RawU16, Rgb565},
@@ -52,29 +53,54 @@ where
             let x1 = drawable_bottom_right.x as u16;
             let y1 = drawable_bottom_right.y as u16;
 
+            const HLINES: usize = 8;
+            let line = x1 - x0;
+            let rows = (y1 - y0).max(HLINES as u16);
+            let mut line_buffer: Vec<u16> = Vec::with_capacity((line * rows) as usize);
+
             if area == &drawable_area {
-                // All pixels are on screen
-                self.draw_raw_iter(
-                    x0,
-                    y0,
-                    x1,
-                    y1,
-                    area.points()
-                        .zip(colors)
-                        .map(|(_, color)| RawU16::from(color).into_inner()),
-                )
+                let mut i = 0;
+                for (point, color) in area.points().zip(colors) {
+                    let c = RawU16::from(color).into_inner().to_be();
+                    line_buffer.push(c);
+                    i = i + 1;
+
+                    if (i == line * rows) {
+                        // All pixels are on screen
+                        self.draw_raw_slice_ne(
+                            x0,
+                            y0,
+                            x1,
+                            y1,
+                            line_buffer.as_mut_slice(),
+                        ).unwrap();
+
+                        line_buffer.clear();
+                        i = 0;
+                    }
+                }
+                Ok(())
             } else {
-                // Some pixels are on screen
-                self.draw_raw_iter(
-                    x0,
-                    y0,
-                    x1,
-                    y1,
-                    area.points()
-                        .zip(colors)
-                        .filter(|(point, _)| drawable_area.contains(*point))
-                        .map(|(_, color)| RawU16::from(color).into_inner()),
-                )
+                let mut i = 0;
+                for (point, color) in area.points().zip(colors).filter(|(point, _)| drawable_area.contains(*point)) {
+                    let c = RawU16::from(color).into_inner().to_be();
+                    line_buffer.push(c);
+                    i = i + 1;
+                    if (i == line * rows) {
+                        // All pixels are on screen
+                        self.draw_raw_slice_ne(
+                            x0,
+                            y0,
+                            x1,
+                            y1,
+                            line_buffer.as_mut_slice(),
+                        ).unwrap();
+
+                        line_buffer.clear();
+                        i = 0;
+                    }
+                }
+                Ok(())
             }
         } else {
             // No pixels are on screen
@@ -83,6 +109,6 @@ where
     }
 
     fn clear(&mut self, color: Self::Color) -> Result<(), Self::Error> {
-        self.clear_screen(RawU16::from(color).into_inner())
+        self.clear_screen(color)
     }
 }
