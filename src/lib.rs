@@ -87,6 +87,7 @@ pub trait Mode {
 
 /// The default implementation of the Mode trait from above
 /// Should work for most (but not all) boards
+#[derive(Copy, Clone)]
 pub enum Orientation {
     Portrait,
     PortraitFlipped,
@@ -349,7 +350,7 @@ impl<IFACE, RESET> Ili9341<IFACE, RESET>
     pub fn clear_screen(&mut self, color: Rgb565) -> Result {
         let w = self.width;
         let h = self.height;
-        const HLINES: usize = 8;
+        const HLINES: usize = 16;
         let mut line_buffer: Vec<u16> = Vec::with_capacity(w * HLINES);
 
         let c = RawU16::from(color).into_inner();
@@ -363,9 +364,6 @@ impl<IFACE, RESET> Ili9341<IFACE, RESET>
             self.draw_raw_slice_ne(0, y as u16, w as u16, (y + HLINES) as u16, line_buffer.as_mut_slice());
         }
         Ok(())
-
-        // let color = core::iter::repeat(color).take(self.width * self.height);
-        // self.draw_raw_slice(0, 0, self.width as u16, self.height as u16, color)
     }
 
     /// Control the screen sleep mode:
