@@ -90,12 +90,13 @@ where
                 Ok(())
             } else {
                 let mut i = 0u32;
+                let mut n = 0u32;
                 let mut lines_count = 0;
                 for (point, color) in area.points().zip(colors).filter(|(point, _)| drawable_area.contains(*point)) {
                     let c = RawU16::from(color).into_inner().to_be();
                     line_buffer.push(c);
                     i = i + 1;
-                    let mut n = 0u32;
+                    n = n + 1;
 
                     if (i == buffer_points || n == area_points) {
                         // All pixels are on screen

@@ -361,7 +361,7 @@ impl<IFACE, RESET> Ili9341<IFACE, RESET>
         for y in (0..h).step_by(HLINES) {
             // MUST not use raw_slice_be cause this will mutate line_buffer
             // for the to_be conversion. We already did this once above
-            self.draw_raw_slice_ne(0, y as u16, w as u16, (y + HLINES) as u16, line_buffer.as_mut_slice());
+            self.draw_raw_slice_ne(0, y as u16, w as u16, (y + HLINES) as u16, line_buffer.as_mut_slice())?;
         }
         Ok(())
     }
